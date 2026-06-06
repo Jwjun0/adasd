@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Supabase 방명록</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #09090b;
+      color: #f4f4f5;
+      min-height: 100vh;
+      padding: 48px 20px;
+    }
+
+    main {
+      max-width: 680px;
+      margin: 0 auto;
+    }
+
+    .header {
+      margin-bottom: 32px;
+    }
+
+    .eyebrow {
+      color: #a1a1aa;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 40px;
+      letter-spacing: -0.04em;
+    }
+
+    .description {
+      color: #a1a1aa;
+      margin-top: 12px;
+    }
+
+    form {
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 20px;
+      padding: 24px;
+      margin-bottom: 32px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      border: 1px solid #3f3f46;
+      border-radius: 14px;
+      background: #09090b;
+      color: #f4f4f5;
+      padding: 14px 16px;
+      font-size: 15px;
+      outline: none;
+      margin-bottom: 18px;
+    }
+
+    input:focus,
+    textarea:focus {
+      border-color: #fafafa;
+    }
+
+    textarea {
+      resize: none;
+      min-height: 120px;
+    }
+
+    button {
+      border: none;
+      border-radius: 14px;
+      background: #fafafa;
+      color: #09090b;
+      padding: 13px 20px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #d4d4d8;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .status {
+      margin-top: 14px;
+      color: #a1a1aa;
+      font-size: 14px;
+    }
+
+    .entries {
+      display: grid;
+      gap: 14px;
+    }
+
+    .entry {
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 18px;
+      padding: 20px;
+    }
+
+    .entry-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+
+    .entry-name {
+      font-weight: 700;
+    }
+
+    .entry-date {
+      color: #71717a;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .entry-message {
+      color: #d4d4d8;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .empty {
+      border: 1px solid #27272a;
+      border-radius: 18px;
+      padding: 20px;
+      color: #a1a1aa;
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <section class="header">
+      <div class="eyebrow">Supabase + Vercel</div>
+      <h1>방명록</h1>
+      <p class="description">이름과 메시지를 남겨주세요.</p>
+    </section>
+
+    <form id="guestbook-form">
+      <label for="name">이름</label>
+      <input
+        id="name"
+        name="name"
+        type="text"
+        maxlength="40"
+        placeholder="홍길동"
+        required
+      />
+
+      <label for="message">메시지</label>
+      <textarea
+        id="message"
+        name="message"
+        maxlength="300"
+        placeholder="방명록을 남겨주세요."
+        required
+      ></textarea>
+
+      <button id="submit-button" type="submit">남기기</button>
+      <div id="status" class="status"></div>
+    </form>
+
+    <section id="entries" class="entries"></section>
+  </main>
+
+  <script>
+    const SUPABASE_URL = "여기에_SUPABASE_PROJECT_URL";
+    const SUPABASE_ANON_KEY = "여기에_SUPABASE_ANON_KEY";
+
+    const supabaseClient = supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_ANON_KEY
+    );
+
+    const form = document.getElementById("guestbook-form");
+    const nameInput = document.getElementById("name");
+    const messageInput = document.getElementById("message");
+    const entriesEl = document.getElementById("entries");
+    const statusEl = document.getElementById("status");
+    const submitButton = document.getElementById("submit-button");
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function formatDate(dateString) {
+      return new Date(dateString).toLocaleString("ko-KR", {
+        timeZone: "Asia/Seoul",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    }
+
+    async function loadEntries() {
+      entriesEl.innerHTML = `<div class="empty">불러오는 중...</div>`;
+
+      const { data, error } = await supabaseClient
+        .from("guestbook")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error(error);
+        entriesEl.innerHTML = `<div class="empty">방명록을 불러오지 못했습니다.</div>`;
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        entriesEl.innerHTML = `<div class="empty">아직 남겨진 메시지가 없습니다.</div>`;
+        return;
+      }
+
+      entriesEl.innerHTML = data
+        .map((entry) => {
+          return `
+            <article class="entry">
+              <div class="entry-header">
+                <div class="entry-name">${escapeHtml(entry.name)}</div>
+                <time class="entry-date">${formatDate(entry.created_at)}</time>
+              </div>
+              <div class="entry-message">${escapeHtml(entry.message)}</div>
+            </article>
+          `;
+        })
+        .join("");
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const name = nameInput.value.trim();
+      const message = messageInput.value.trim();
+
+      if (!name || !message) {
+        statusEl.textContent = "이름과 메시지를 모두 입력해주세요.";
+        return;
+      }
+
+      if (name.length > 40 || message.length > 300) {
+        statusEl.textContent = "이름은 40자, 메시지는 300자 이하로 입력해주세요.";
+        return;
+      }
+
+      submitButton.disabled = true;
+      statusEl.textContent = "저장 중...";
+
+      const { error } = await supabaseClient
+        .from("guestbook")
+        .insert({
+          name,
+          message
+        });
+
+      submitButton.disabled = false;
+
+      if (error) {
+        console.error(error);
+        statusEl.textContent = "저장하지 못했습니다. Supabase 설정을 확인해주세요.";
+        return;
+      }
+
+      form.reset();
+      statusEl.textContent = "방명록이 저장되었습니다.";
+      await loadEntries();
+    });
+
+    loadEntries();
+  </script>
+</body>
+</html>
